@@ -79,6 +79,31 @@ conda create -n react_infer_env python=3.10.0
 conda activate react_infer_env
 ```
 
+> [!TIP]
+> **Added in this repo (non-breaking addition): prefer `pixi` over `conda` for reproducible setup.**
+> 
+> Keep the original `conda` steps above if you prefer. This repository already includes `pyproject.toml` and `pixi.lock`, so use:
+> 
+> ```bash
+> # macOS / Linux: install pixi
+> curl -fsSL https://pixi.sh/install.sh | sh
+> 
+> # From repository root (uses existing pixi.lock)
+> cd DeepResearch
+> pixi install
+> pixi shell
+> ```
+> 
+> ```powershell
+> # Windows (PowerShell): install pixi
+> iwr -useb https://pixi.sh/install.ps1 | iex
+> 
+> # From repository root (uses existing pixi.lock)
+> cd DeepResearch
+> pixi install
+> pixi shell
+> ```
+
 ### 2. Installation
 
 Install the required dependencies:
@@ -168,6 +193,43 @@ bash run_react_infer.sh
 ---
 
 With these steps, you can fully prepare the environment, configure the dataset, and run the model. For more details, consult the inline comments in each script or open an issue.
+
+> [!IMPORTANT]
+> **Added in this repo (on top of the original README): OpenRouter ReAct mode is now ready-to-run without editing `react_agent.py`.**
+> 
+> Instead of manually patching code, use the dedicated script and dependency file.
+> 
+> If you use **pixi**:
+> 
+> ```bash
+> # From repository root
+> cd DeepResearch
+> pixi install
+> cp .env.example .env
+> # then set at least: OPENROUTER_API_KEY
+> # optional: OPENROUTER_BASE_URL, OPENROUTER_MODEL
+> pixi run bash inference/run_react_infer_openrouter.sh
+> ```
+> 
+> If you do **not** use pixi (conda/virtualenv/system Python):
+> 
+> ```bash
+> # Install API-only dependencies (no local vLLM serving stack)
+> pip install -r requirements_openrouter.txt
+> 
+> # Prepare env file
+> cp .env.example .env
+> # then set at least: OPENROUTER_API_KEY
+> # optional: OPENROUTER_BASE_URL, OPENROUTER_MODEL
+> 
+> # Run OpenRouter ReAct inference
+> bash inference/run_react_infer_openrouter.sh
+> ```
+> 
+> Suggested `.env` keys for this mode:
+> - `OPENROUTER_API_KEY` (required)
+> - `OPENROUTER_BASE_URL` (default: `https://openrouter.ai/api/v1`)
+> - `OPENROUTER_MODEL` (default: `alibaba/tongyi-deepresearch-30b-a3b`)
 
 ### 6. You can use OpenRouter's API to call our model
 
