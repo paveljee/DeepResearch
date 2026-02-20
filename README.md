@@ -241,6 +241,46 @@ You need to modify the following in the file [inference/react_agent.py](https://
 - Change the model name to alibaba/tongyi-deepresearch-30b-a3b.
 - Adjust the content concatenation way as described in the comments on lines **88–90.**
 
+> [!WARNING]
+> **Added in this repo (status clarification): there is no turnkey local "Heavy/Fusion" launcher yet (unlike ReAct).**
+> 
+> The main README mentions Heavy mode, but in this repository snapshot the available code is research-style under `WebAgent/ParallelMuse/` and is not fully packaged as a one-command runner.
+> 
+> Current Heavy-like pipeline components on disk:
+> - `WebAgent/ParallelMuse/functionality_specified_partial_rollout.py` (parallel rollout generation)
+> - `WebAgent/ParallelMuse/compressed_reasoning_aggregation.py` (report/fusion aggregation)
+> 
+> Known blockers in current snapshot:
+> - `WebAgent/ParallelMuse/tools/` currently has no `tool_search.py` / `tool_visit.py` implementation files.
+> - `compressed_reasoning_aggregation.py` contains TODO placeholders and argument mismatches that need code fixes before reliable execution.
+> 
+> Intended local flow (after those blockers are resolved):
+> 
+> ```bash
+> # 1) Start local OpenAI-compatible model endpoint (edit MODEL_PATH first)
+> cd DeepResearch/WebAgent/ParallelMuse
+> bash vllm_deploy.sh
+> ```
+> 
+> ```bash
+> # 2) Generate multiple rollouts
+> cd DeepResearch/WebAgent/ParallelMuse
+> python functionality_specified_partial_rollout.py \
+>   --qa_file_path ./data/hle_search_157.jsonl \
+>   --output_dir ./deepresearch_results \
+>   --model_path ./llm_ckpt/tongyi-deepresearch-30b-a3b \
+>   --sampling_budget 8 \
+>   --partial_sampling_mode none
+> ```
+> 
+> ```bash
+> # 3) Run fusion/aggregation (after setting rollout path in script)
+> cd DeepResearch/WebAgent/ParallelMuse
+> python compressed_reasoning_aggregation.py
+> ```
+> 
+> If you need, we can add a proper `inference/run_heavy_fusion_local.sh` in this repo (matching the OpenRouter ReAct style) once the missing ParallelMuse tool files and aggregation script issues are fixed.
+
 ## Benchmark Evaluation
 
 We provide benchmark evaluation scripts for various datasets. Please refer to the [evaluation scripts](./evaluation/) directory for more details.
