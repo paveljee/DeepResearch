@@ -13,6 +13,7 @@ from urllib.parse import urlparse, unquote
 import time 
 from transformers import AutoTokenizer
 import tiktoken
+from metrics_tracker import get_llm_context, record_llm_call
 
 VISIT_SERVER_TIMEOUT = int(os.getenv("VISIT_SERVER_TIMEOUT", 200))
 WEBCONTENT_MAXLENGTH = int(os.getenv("WEBCONTENT_MAXLENGTH", 150000))
@@ -104,6 +105,7 @@ class Visit(BaseTool):
             api_key=api_key,
             base_url=url_llm,
         )
+        overall_start = time.time()
         for attempt in range(max_retries):
             try:
                 chat_response = client.chat.completions.create(
@@ -112,6 +114,27 @@ class Visit(BaseTool):
                     temperature=0.7
                 )
                 content = chat_response.choices[0].message.content
+                usage = getattr(chat_response, "usage", None)
+                prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+                completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+                if prompt_tokens == 0:
+                    prompt_tokens = len(tiktoken.get_encoding("cl100k_base").encode(str(msgs)))
+                if completion_tokens == 0 and content:
+                    completion_tokens = len(tiktoken.get_encoding("cl100k_base").encode(content))
+
+                ctx = get_llm_context()
+                if ctx:
+                    record_llm_call(
+                        run_id=ctx["run_id"],
+                        rollout_idx=ctx.get("rollout_idx"),
+                        question=ctx["question"],
+                        llm_role="summarizer",
+                        model_name=model_name or "unknown_summary_model",
+                        input_tokens=prompt_tokens,
+                        output_tokens=completion_tokens,
+                        latency_sec=time.time() - overall_start,
+                        parent_main_llm_call_index=ctx.get("main_llm_call_index"),
+                    )
                 if content:
                     try:
                         json.loads(content)

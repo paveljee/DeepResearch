@@ -17,12 +17,14 @@ from prompt import *
 import time
 import asyncio
 import tiktoken
+import hashlib
 
 from tool_file import *
 from tool_scholar import *
 from tool_python import *
 from tool_search import *
 from tool_visit import *
+from metrics_tracker import record_llm_call, set_llm_context, clear_llm_context
 
 OBS_START = '<tool_response>'
 OBS_END = '\n</tool_response>'
@@ -59,6 +61,7 @@ class MultiTurnReactAgent(FnCallAgent):
     
     def call_server(self, msgs, planning_port, max_tries=10):
         use_openrouter = os.getenv("USE_OPENROUTER", "false").lower() == "true"
+        overall_start = time.time()
 
         if use_openrouter:
             openai_api_key = os.getenv("OPENROUTER_API_KEY", "")
@@ -88,16 +91,30 @@ class MultiTurnReactAgent(FnCallAgent):
                     presence_penalty=self.llm_generate_cfg.get('presence_penalty', 1.1)
                 )
                 content = chat_response.choices[0].message.content
+                usage = getattr(chat_response, "usage", None)
+                prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+                completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
 
                 if use_openrouter:
                     reasoning = getattr(chat_response.choices[0].message, "reasoning", None)
                     if reasoning and reasoning.strip():
                         reasoning_content = "<think>\n" + reasoning.strip() + "\n</think>"
                         content = reasoning_content + (content or "")
+
+                if prompt_tokens == 0:
+                    prompt_tokens = self.count_tokens(msgs)
+                if completion_tokens == 0 and content:
+                    completion_tokens = len(tiktoken.get_encoding("cl100k_base").encode(content))
                 
                 if content and content.strip():
                     print("--- Service call successful, received a valid response ---")
-                    return content.strip()
+                    return {
+                        "content": content.strip(),
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "latency_sec": time.time() - overall_start,
+                        "attempt": attempt + 1,
+                    }
                 else:
                     print(f"Warning: Attempt {attempt + 1} received an empty response.")
 
@@ -115,7 +132,13 @@ class MultiTurnReactAgent(FnCallAgent):
             else:
                 print("Error: All retry attempts have been exhausted. The call has failed.")
         
-        return f"vllm server error!!!"
+        return {
+            "content": "vllm server error!!!",
+            "prompt_tokens": self.count_tokens(msgs),
+            "completion_tokens": 0,
+            "latency_sec": time.time() - overall_start,
+            "attempt": max_tries,
+        }
 
     def count_tokens(self, messages):
         if os.getenv("USE_OPENROUTER", "false").lower() == "true":
@@ -141,6 +164,11 @@ class MultiTurnReactAgent(FnCallAgent):
         start_time = time.time()
         planning_port = data['planning_port']
         answer = data['item']['answer']
+        rollout_idx = data.get("rollout_idx")
+        run_id = data.get("run_id")
+        if not run_id:
+            qhash = hashlib.md5(question.encode("utf-8")).hexdigest()[:12]
+            run_id = f"rollout{rollout_idx}_q{qhash}"
         self.user_prompt = question
         system_prompt = SYSTEM_PROMPT
         cur_date = today_date()
@@ -163,8 +191,10 @@ class MultiTurnReactAgent(FnCallAgent):
                 return result
             round += 1
             num_llm_calls_available -= 1
-            content = self.call_server(messages, planning_port)
+            call_result = self.call_server(messages, planning_port)
+            content = call_result["content"]
             print(f'Round {round}: {content}')
+            tools_invoked_this_call = {}
             if '<tool_response>' in content:
                 pos = content.find('<tool_response>')
                 content = content[:pos]
@@ -173,23 +203,57 @@ class MultiTurnReactAgent(FnCallAgent):
                 tool_call = content.split('<tool_call>')[1].split('</tool_call>')[0]
                 try:
                     if "python" in tool_call.lower():
+                        tools_invoked_this_call["PythonInterpreter"] = tools_invoked_this_call.get("PythonInterpreter", 0) + 1
                         try:
+                            set_llm_context(
+                                run_id=run_id,
+                                rollout_idx=rollout_idx,
+                                question=question,
+                                main_llm_call_index=round,
+                            )
                             code_raw=content.split('<tool_call>')[1].split('</tool_call>')[0].split('<code>')[1].split('</code>')[0].strip()
                             result = TOOL_MAP['PythonInterpreter'].call(code_raw)
                         except:
                             result = "[Python Interpreter Error]: Formatting error."
+                        finally:
+                            clear_llm_context()
 
                     else:
                         tool_call = json5.loads(tool_call)
                         tool_name = tool_call.get('name', '')
                         tool_args = tool_call.get('arguments', {})
+                        if tool_name:
+                            tools_invoked_this_call[tool_name] = tools_invoked_this_call.get(tool_name, 0) + 1
+                        set_llm_context(
+                            run_id=run_id,
+                            rollout_idx=rollout_idx,
+                            question=question,
+                            main_llm_call_index=round,
+                        )
                         result = self.custom_call_tool(tool_name, tool_args)
+                        clear_llm_context()
 
                 except:
                     result = 'Error: Tool call is not a valid JSON. Tool call must contain a valid "name" and "arguments" field.'
+                finally:
+                    clear_llm_context()
                 result = "<tool_response>\n" + result + "\n</tool_response>"
                 # print(result)
                 messages.append({"role": "user", "content": result})
+
+            record_llm_call(
+                run_id=run_id,
+                rollout_idx=rollout_idx,
+                question=question,
+                llm_role="main",
+                model_name=str(self.model),
+                input_tokens=int(call_result.get("prompt_tokens", 0)),
+                output_tokens=int(call_result.get("completion_tokens", 0)),
+                latency_sec=float(call_result.get("latency_sec", 0.0)),
+                tools_invoked=tools_invoked_this_call,
+                parent_main_llm_call_index=round,
+            )
+
             if '<answer>' in content and '</answer>' in content:
                 termination = 'answer'
                 break

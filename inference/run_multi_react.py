@@ -41,6 +41,7 @@ if __name__ == "__main__":
     dataset_dir = os.path.join(model_dir, args.dataset)
 
     os.makedirs(dataset_dir, exist_ok=True)
+    os.environ["DEEPRESEARCH_METRICS_DIR"] = os.path.join(dataset_dir, "metrics")
 
     print(f"Model name: {model_name}")
     print(f"Data set path: {args.dataset}")
@@ -118,7 +119,7 @@ if __name__ == "__main__":
     question_to_ports = {}
     for rollout_idx in range(1, roll_out_count + 1):
         processed_queries = processed_queries_per_rollout[rollout_idx]
-        for item in items:
+        for item_idx, item in enumerate(items):
             question = item.get("question", "").strip()
             if question == "":
                 try:
@@ -138,10 +139,13 @@ if __name__ == "__main__":
                     question_to_ports[question] = planning_port
                     planning_rr_idx += 1
                 planning_port = question_to_ports[question]
+                absolute_item_idx = start_idx + item_idx
+                run_id = f"split{worker_split}of{total_splits}_item{absolute_item_idx}_rollout{rollout_idx}"
                 tasks_to_run_all.append({
                     "item": item.copy(),
                     "rollout_idx": rollout_idx,
                     "planning_port": planning_port,
+                    "run_id": run_id,
                 })
                 per_rollout_task_counts[rollout_idx] += 1
 
