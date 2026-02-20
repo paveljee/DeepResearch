@@ -148,4 +148,6 @@ cache/
 # Model and output paths (typically large files)
 models/
 outputs/
-checkpoints/
+checkpoints/# pixi environments
+.pixi/*
+!.pixi/config.toml
