@@ -1,0 +1,39 @@
+# OpenRouter ReAct inference pathway (no local vLLM/GPU serving)
+# Install with: pip install -r requirements_openrouter.txt
+
+# Core runtime
+python-dotenv==1.1.1
+qwen-agent==0.0.26
+openai==1.99.5
+json5==0.12.1
+tqdm==4.67.1
+requests==2.32.5
+
+# Token counting (react_agent + visit tool)
+tiktoken==0.11.0
+transformers==4.56.1
+
+# Python execution tool
+sandbox-fusion==0.3.7
+
+# File parsing + table/doc handling toolchain
+beautifulsoup4==4.13.4
+python-docx==1.2.0
+python-pptx==1.0.2
+openpyxl==3.1.5
+pandas==2.3.2
+pdfminer.six==20250506
+pdfplumber==0.11.7
+tabulate==0.9.0
+charset-normalizer==3.4.3
+
+# Video/file helper path dependencies
+Pillow==11.3.0
+ffmpeg-python==0.2.0
+scenedetect==0.6.7.1
+
+# Aliyun IDP dependencies used by file parser helpers
+alibabacloud-credentials==1.0.2
+alibabacloud-docmind-api20220711==1.4.11
+alibabacloud-tea-openapi==0.4.1
+alibabacloud_tea_util==0.3.13

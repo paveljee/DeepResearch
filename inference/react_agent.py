@@ -16,6 +16,7 @@ from qwen_agent.utils.utils import format_as_text_message, merge_generate_cfgs
 from prompt import *
 import time
 import asyncio
+import tiktoken
 
 from tool_file import *
 from tool_scholar import *
@@ -57,9 +58,14 @@ class MultiTurnReactAgent(FnCallAgent):
         return "<think>" in content and "</think>" in content
     
     def call_server(self, msgs, planning_port, max_tries=10):
-        
-        openai_api_key = "EMPTY"
-        openai_api_base = f"http://127.0.0.1:{planning_port}/v1"
+        use_openrouter = os.getenv("USE_OPENROUTER", "false").lower() == "true"
+
+        if use_openrouter:
+            openai_api_key = os.getenv("OPENROUTER_API_KEY", "")
+            openai_api_base = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        else:
+            openai_api_key = "EMPTY"
+            openai_api_base = f"http://127.0.0.1:{planning_port}/v1"
 
         client = OpenAI(
             api_key=openai_api_key,
@@ -83,9 +89,11 @@ class MultiTurnReactAgent(FnCallAgent):
                 )
                 content = chat_response.choices[0].message.content
 
-                # OpenRouter provides API calling. If you want to use OpenRouter, you need to uncomment line 89 - 90.
-                # reasoning_content = "<think>\n" + chat_response.choices[0].message.reasoning.strip() + "\n</think>"
-                # content = reasoning_content + content                
+                if use_openrouter:
+                    reasoning = getattr(chat_response.choices[0].message, "reasoning", None)
+                    if reasoning and reasoning.strip():
+                        reasoning_content = "<think>\n" + reasoning.strip() + "\n</think>"
+                        content = reasoning_content + (content or "")
                 
                 if content and content.strip():
                     print("--- Service call successful, received a valid response ---")
@@ -110,11 +118,16 @@ class MultiTurnReactAgent(FnCallAgent):
         return f"vllm server error!!!"
 
     def count_tokens(self, messages):
-        tokenizer = AutoTokenizer.from_pretrained(self.llm_local_path) 
+        if os.getenv("USE_OPENROUTER", "false").lower() == "true":
+            encoding = tiktoken.get_encoding("cl100k_base")
+            full_prompt = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
+            return len(encoding.encode(full_prompt))
+
+        tokenizer = AutoTokenizer.from_pretrained(self.llm_local_path)
         full_prompt = tokenizer.apply_chat_template(messages, tokenize=False)
         tokens = tokenizer(full_prompt, return_tensors="pt")
         token_count = len(tokens["input_ids"][0])
-        
+
         return token_count
 
     def _run(self, data: str, model: str, **kwargs) -> List[List[Message]]:
